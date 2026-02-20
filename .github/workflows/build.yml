@@ -45,26 +45,6 @@ jobs:
             git commit --amend --no-edit
           fi
 
-      - name: Update dependency
-        if: github.event_name != 'pull_request'
-        run: |
-          # keygen
-          gh release download -R KOWX712/keygen -p "*.tar.gz" -O keygen.tar.gz
-          tar -xzf keygen.tar.gz -C module/bin
-
-          # Commit if found changes
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global user.name "github-actions[bot]"
-
-          # Commit binaries files if changed
-          if git status --porcelain | grep -q 'module/bin/'; then
-            git add module/bin/**
-            git commit -m "deps: update binaries"
-          fi
-
-          # Push all commits
-          git push --force
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:

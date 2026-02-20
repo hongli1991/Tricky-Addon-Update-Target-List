@@ -14,8 +14,10 @@
   "type": "module",
   "dependencies": {
     "@material/web": "^2.4.1",
+    "asn1js": "^3.0.7",
     "kernelsu-alt": "^3.1.1",
-    "marked": "^17.0.1",
+    "marked": "^17.0.3",
+    "pkijs": "^3.3.3",
     "webuix": "^0.0.18"
   },
   "devDependencies": {

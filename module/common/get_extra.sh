@@ -5,7 +5,6 @@
 MODPATH=${0%/*}
 SKIPLIST="$MODPATH/tmp/skiplist"
 XPOSED="$MODPATH/tmp/xposed"
-PATH=$MODPATH/bin:$PATH
 
 if [ "$MODPATH" = "/data/adb/modules/.TA_utl/common" ]; then
     MODDIR="/data/adb/modules/.TA_utl"
@@ -203,59 +202,6 @@ get_latest_security_patch() {
     exit 1
 }
 
-unknown_kb() {
-    # adapted from https://github.com/TMLP-Team/keyboxGenerator/blob/main/keyboxGenerator_v2.0.py
-    ECKEY="eckey.pem"
-    CERT="cert.pem"
-    RSAKEY="rsakey.pem"
-    KEYBOX="keybox.xml"
-
-    # gen ec_key
-    keygen gen_ec_key > "$ECKEY" || exit 1
-
-    # gen cert
-    keygen gen_cert "$ECKEY" > "$CERT" || exit 1
-
-    # gen rsa key
-    keygen gen_rsa_key > "$RSAKEY" || exit 1
-
-    # Generate keybox XML
-    cat << KEYBOX_EOF > "$KEYBOX"
-<?xml version="1.0"?>
-    <AndroidAttestation>
-        <NumberOfKeyboxes>1</NumberOfKeyboxes>
-        <Keybox DeviceID="sw">
-            <Key algorithm="ecdsa">
-                <PrivateKey format="pem">
-$(sed 's/^/                    /' "$ECKEY")
-                </PrivateKey>
-                <CertificateChain>
-                    <NumberOfCertificates>1</NumberOfCertificates>
-                        <Certificate format="pem">
-$(sed 's/^/                        /' "$CERT")
-                        </Certificate>
-                </CertificateChain>
-            </Key>
-            <Key algorithm="rsa">
-                <PrivateKey format="pem">
-$(sed 's/^/                    /' "$RSAKEY")
-                </PrivateKey>
-            </Key>
-        </Keybox>
-</AndroidAttestation>
-KEYBOX_EOF
-
-    # cleanup
-    rm -f $ECKEY $CERT $RSAKEY
-
-    if [ -f $KEYBOX ]; then
-        mv /data/adb/tricky_store/keybox.xml /data/adb/tricky_store/keybox.xml.bak
-        mv "$KEYBOX" /data/adb/tricky_store/keybox.xml
-    else
-        exit 1
-    fi
-}
-
 case "$1" in
 --download)
     shift
@@ -299,10 +245,6 @@ case "$1" in
     ;;
 --get-security-patch)
     get_latest_security_patch
-    exit
-    ;;
---unknown-kb)
-    unknown_kb
     exit
     ;;
 esac

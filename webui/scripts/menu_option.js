@@ -1,6 +1,7 @@
-import { exec, spawn, toast } from 'kernelsu-alt';
+import { exec, toast } from 'kernelsu-alt';
 import { basePath, showPrompt, refreshAppList } from './main.js';
 import { openFileSelector } from './file_selector.js';
+import { generateUnknownKeybox } from './keygen.js';
 
 // Function to check or uncheck all app
 function toggleCheckboxes(shouldCheck) {
@@ -244,11 +245,14 @@ async function fetchkb(link, fallbackLink) {
 
 // unkown kb eventlistener
 document.getElementById("devicekb").onclick = async () => {
-    const output = spawn("sh", [`${basePath}/common/get_extra.sh`, "--unknown-kb"],
-                    { cwd: "/data/local/tmp", env: { PATH: `${basePath}/common/bin:$PATH` }});
-    output.on('exit', (code) => {
-        showPrompt(code === 0 ? "prompt_unknown_key_set" : "prompt_key_set_error", code === 0);
-    });
+    try {
+        const keyboxContent = await generateUnknownKeybox();
+        const result = await setKeybox(keyboxContent);
+        showPrompt(result ? "prompt_unknown_key_set" : "prompt_key_set_error", result);
+    } catch (error) {
+        console.error(error);
+        showPrompt("prompt_key_set_error", false);
+    }
 }
 
 // valid kb eventlistener

@@ -15,12 +15,8 @@ initialize() {
         cp "$MODPATH/uninstall.sh" "$COMPATH/update/uninstall.sh"
     fi
 
-    # Set binary permission
+    # Backup module.prop
     cp "$MODPATH/module.prop" "$COMPATH/update/module.prop"
-    mkdir -p "$COMPATH/bin"
-    mv "$MODPATH/bin/$(getprop ro.product.cpu.abi)/"* "$COMPATH/bin/"
-    set_perm_recursive "$COMPATH/bin" 0 2000 0755 0755
-    rm -rf "$MODPATH/bin"
 }
 
 find_config() {

@@ -24,6 +24,7 @@ import { setupSystemAppMenu } from './menu_option.js';
 import { searchInput } from './search_menu.js';
 import { updateCheck, connection } from './update.js';
 import { securityPatch } from './security_patch.js';
+import { isKeygenAvailable } from './keygen.js';
 
 // Loading, Save and Prompt Elements
 export const loadingIndicator = document.querySelector('.loading');
@@ -429,6 +430,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     checkTrickyStoreVersion();
     checkMagisk();
     updateCheck();
+    if (!isKeygenAvailable()) document.getElementById('devicekb').style.display = 'none';
     securityPatch();
     monitorDialogsAndLockScroll();
     document.getElementById("refresh").onclick = refreshAppList;
