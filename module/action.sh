@@ -13,6 +13,7 @@ DEVCONFIG_FILE="$TS_DIR/devconfig.toml"
 BOOT_HASH_FILE="/data/adb/boot_hash"
 ACTION_DIR="${0%/*}"
 VBH_TEMPLATE_FILE="$ACTION_DIR/VerifiedBootHash.txt"
+KEYBOX_UPDATE_SCRIPT="$ACTION_DIR/common/keybox_update.sh"
 DEFAULT_KEYBOX_HEX="/data/adb/modules/.TA_utl/common/.default"
 [ -f "$DEFAULT_KEYBOX_HEX" ] || DEFAULT_KEYBOX_HEX="/data/adb/modules/TA_utl/common/.default"
 
@@ -24,6 +25,7 @@ MENU_ITEMS="
 手动设置 Security Patch
 写入 AOSP Keybox
 导入本地 Keybox（DocumentsUI）
+联网更新 Keybox
 退出"
 MENU_SELECTED=1
 MENU_USE_KEYS=0
@@ -44,123 +46,76 @@ ensure_tricky_store() {
 }
 
 ensure_template_files() {
-  if [ ! -f "$VBH_TEMPLATE_FILE" ]; then
-    touch "$VBH_TEMPLATE_FILE"
-    chmod 644 "$VBH_TEMPLATE_FILE"
-  fi
+  [ -f "$VBH_TEMPLATE_FILE" ] || touch "$VBH_TEMPLATE_FILE"
+  chmod 644 "$VBH_TEMPLATE_FILE"
 }
 
 save_target_from_apps() {
-  cat <<'TIP'
-- 输入要排除的关键字（正则），用空格分隔。
-  直接回车则使用默认值：oneplus coloros miui com.android.patch me.bmax.apatch me.garfieldhan.apatch.next
-TIP
+  echo "- 输入要排除的关键字（正则），空格分隔；留空用默认值"
   printf "> "
   read -r user_exclude
-
   [ -n "$user_exclude" ] || user_exclude="oneplus coloros miui com.android.patch me.bmax.apatch me.garfieldhan.apatch.next"
   exclude_pattern=$(echo "$user_exclude" | tr ' ' '|' | sed 's/||*/|/g;s/^|//;s/|$//')
 
   pm list packages -3 | awk -F: '{print $2}' | grep -Ev "$exclude_pattern" | sort -u > "$TARGET_FILE"
-
   if [ -f "$SYSTEM_APP_FILE" ]; then
     sed '/^#/d;/^$/d' "$SYSTEM_APP_FILE" | while read -r pkg; do
       pm list packages -s | grep -q "$pkg" && echo "$pkg" >> "$TARGET_FILE"
     done
     sort -u "$TARGET_FILE" -o "$TARGET_FILE"
   fi
-
   echo "- 已生成 target.txt ($(wc -l < "$TARGET_FILE") 项)"
 }
 
 add_denylist_to_target() {
-  command -v magisk >/dev/null 2>&1 || {
-    echo "! 未检测到 magisk，无法读取 denylist"
-    return 1
-  }
-
+  command -v magisk >/dev/null 2>&1 || { echo "! 未检测到 magisk"; return 1; }
   exclamation_target=$(grep '!' "$TARGET_FILE" | sed 's/!$//')
   question_target=$(grep '?' "$TARGET_FILE" | sed 's/?$//')
   target=$(sed 's/[!?]$//' "$TARGET_FILE")
   denylist=$(magisk --denylist ls 2>/dev/null | awk -F'|' '{print $1}' | grep -v "isolated")
-
   printf "%s\n" "$target" "$denylist" | sed '/^$/d' | sort -u > "$TARGET_FILE"
-
-  for t in $exclamation_target; do
-    sed -i "s/^$t$/$t!/" "$TARGET_FILE"
-  done
-  for t in $question_target; do
-    sed -i "s/^$t$/$t?/" "$TARGET_FILE"
-  done
-
+  for t in $exclamation_target; do sed -i "s/^$t$/$t!/" "$TARGET_FILE"; done
+  for t in $question_target; do sed -i "s/^$t$/$t?/" "$TARGET_FILE"; done
   touch "$TS_DIR/target_from_denylist"
-  echo "- 已合并 denylist 到 target.txt"
+  echo "- 已合并 denylist"
 }
 
 set_boot_hash() {
   ensure_template_files
   hash=$(sed '/^#/d;/^$/d' "$VBH_TEMPLATE_FILE" | head -n 1 | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
-  if [ -z "$hash" ]; then
-    echo "! $VBH_TEMPLATE_FILE 为空，请先写入 vbmeta digest"
-    return 1
-  fi
-
+  [ -n "$hash" ] || { echo "! $VBH_TEMPLATE_FILE 为空"; return 1; }
   resetprop -n ro.boot.vbmeta.digest "$hash"
   echo "$hash" > "$BOOT_HASH_FILE"
   chmod 644 "$BOOT_HASH_FILE"
-  echo "- 已从 VerifiedBootHash.txt 自动写入 boot_hash"
+  echo "- 已写入 boot_hash"
 }
 
 set_security_patch_manual() {
-  echo "输入 Security Patch 日期(YYYY-MM-DD)，例如 2025-01-05："
+  echo "输入 Security Patch 日期(YYYY-MM-DD)："
   printf "> "
   read -r patch
-  if ! echo "$patch" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
-    echo "! 格式无效"
-    return 1
-  fi
+  echo "$patch" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' || { echo "! 格式无效"; return 1; }
 
   if grep -q "James" "/data/adb/modules/tricky_store/module.prop" && ! grep -q "beakthoven" "/data/adb/modules/tricky_store/module.prop"; then
-    cat > "$DEVCONFIG_FILE" <<EOC
-securityPatch = "$patch"
-EOC
-    echo "- 已写入 devconfig.toml"
+    printf 'securityPatch = "%s"\n' "$patch" > "$DEVCONFIG_FILE"
   else
-    cat > "$SECURITY_PATCH_FILE" <<EOC
-system=prop
-boot=$patch
-vendor=$patch
-EOC
+    printf 'system=prop\nboot=%s\nvendor=%s\n' "$patch" "$patch" > "$SECURITY_PATCH_FILE"
     chmod 644 "$SECURITY_PATCH_FILE"
     rm -f "$SECURITY_PATCH_AUTO"
-    echo "- 已写入 security_patch.txt"
   fi
+  echo "- 已设置 security patch"
 }
 
 set_security_patch_auto() {
   sh /data/adb/modules/TA_utl/common/get_extra.sh --security-patch >/dev/null 2>&1 || \
   sh /data/adb/modules/.TA_utl/common/get_extra.sh --security-patch >/dev/null 2>&1
-
-  if [ $? -eq 0 ]; then
-    touch "$SECURITY_PATCH_AUTO"
-    echo "- 已自动配置 security patch"
-  else
-    echo "! 自动配置失败"
-    return 1
-  fi
+  [ $? -eq 0 ] && { touch "$SECURITY_PATCH_AUTO"; echo "- 自动配置成功"; } || { echo "! 自动配置失败"; return 1; }
 }
 
 set_aosp_keybox() {
-  [ -f "$DEFAULT_KEYBOX_HEX" ] || {
-    echo "! 找不到默认 keybox 数据"
-    return 1
-  }
-
+  [ -f "$DEFAULT_KEYBOX_HEX" ] || { echo "! 找不到默认 keybox 数据"; return 1; }
   mv -f "$TS_DIR/keybox.xml" "$TS_DIR/keybox.xml.bak" 2>/dev/null
-  xxd -r -p "$DEFAULT_KEYBOX_HEX" | base64 -d > "$TS_DIR/keybox.xml" || {
-    echo "! 写入 keybox 失败"
-    return 1
-  }
+  xxd -r -p "$DEFAULT_KEYBOX_HEX" | base64 -d > "$TS_DIR/keybox.xml" || { echo "! 写入失败"; return 1; }
   chmod 644 "$TS_DIR/keybox.xml"
   echo "- 已写入 AOSP keybox"
 }
@@ -169,30 +124,37 @@ pick_keybox_path_via_documentsui() {
   am start -a android.intent.action.OPEN_DOCUMENT -t "text/xml" >/dev/null 2>&1 || \
   am start -n com.android.documentsui/.files.FilesActivity >/dev/null 2>&1
 
-  echo "- 已打开 DocumentsUI，请选择 keybox.xml"
-  echo "- 选完后返回，然后按 音量上 继续"
+  echo "- 已打开 DocumentsUI，请选择 keybox.xml" >&2
+  echo "- 返回后按 音量上 继续" >&2
   wait_for_volume_up
 
-  picked=$(find /sdcard /storage/emulated/0 -type f -name 'keybox.xml' 2>/dev/null | while read -r f; do
-    echo "$(stat -c '%Y %n' "$f" 2>/dev/null)"
-  done | sort -nr | head -n 1 | cut -d' ' -f2-)
-
-  [ -n "$picked" ] || return 1
-  echo "$picked"
-  return 0
+  # 更稳：寻找最近修改且内容像 keybox 的 xml
+  find /sdcard /storage/emulated/0 -type f -name '*.xml' 2>/dev/null | while read -r f; do
+    grep -q "AndroidAttestation" "$f" 2>/dev/null || continue
+    stat -c '%Y %n' "$f" 2>/dev/null || echo "0 $f"
+  done | sort -nr | head -n 1 | cut -d' ' -f2-
 }
 
 import_local_keybox() {
   kb_path=$(pick_keybox_path_via_documentsui)
   if [ -z "$kb_path" ] || [ ! -f "$kb_path" ]; then
-    echo "! 未找到可用 keybox.xml，请确认文件名是 keybox.xml"
+    echo "! 无法获取 keybox 路径或文件无效"
     return 1
   fi
-
   mv -f "$TS_DIR/keybox.xml" "$TS_DIR/keybox.xml.bak" 2>/dev/null
   cp -f "$kb_path" "$TS_DIR/keybox.xml"
   chmod 644 "$TS_DIR/keybox.xml"
   echo "- 已导入 keybox: $kb_path"
+}
+
+update_keybox_online() {
+  [ -x "$KEYBOX_UPDATE_SCRIPT" ] || chmod 755 "$KEYBOX_UPDATE_SCRIPT" 2>/dev/null
+  if [ -x "$KEYBOX_UPDATE_SCRIPT" ]; then
+    sh "$KEYBOX_UPDATE_SCRIPT"
+  else
+    echo "! 在线更新脚本不存在: $KEYBOX_UPDATE_SCRIPT"
+    return 1
+  fi
 }
 
 use_key_menu() {
@@ -229,14 +191,9 @@ render_key_menu() {
   print_header
   echo "音量键控制：音量下=下一个（循环），音量上=确认"
   echo "------------------------------------------"
-
   idx=1
   echo "$MENU_ITEMS" | sed '/^$/d' | while IFS= read -r item; do
-    if [ "$idx" -eq "$MENU_SELECTED" ]; then
-      echo "> [$idx] $item"
-    else
-      echo "  [$idx] $item"
-    fi
+    [ "$idx" -eq "$MENU_SELECTED" ] && echo "> [$idx] $item" || echo "  [$idx] $item"
     idx=$((idx + 1))
   done
 }
@@ -246,13 +203,9 @@ wait_key_action() {
     get_button
     case "$button" in
       KEY_VOLUMEDOWN)
-        MENU_SELECTED=$((MENU_SELECTED + 1))
-        [ "$MENU_SELECTED" -gt 8 ] && MENU_SELECTED=1
-        return 1
-        ;;
+        MENU_SELECTED=$((MENU_SELECTED + 1)); [ "$MENU_SELECTED" -gt 9 ] && MENU_SELECTED=1; return 1 ;;
       KEY_VOLUMEUP)
-        return 0
-        ;;
+        return 0 ;;
     esac
   done
 }
@@ -278,7 +231,8 @@ run_choice() {
     5) set_security_patch_manual ;;
     6) set_aosp_keybox ;;
     7) import_local_keybox ;;
-    8) exit_script ;;
+    8) update_keybox_online ;;
+    9) exit_script ;;
     *) echo "! 无效选项" ;;
   esac
 }
@@ -286,10 +240,7 @@ run_choice() {
 main() {
   ensure_tricky_store
   ensure_template_files
-
-  if use_key_menu; then
-    MENU_USE_KEYS=1
-  fi
+  use_key_menu && MENU_USE_KEYS=1
 
   while true; do
     if [ "$MENU_USE_KEYS" -eq 1 ]; then
@@ -309,7 +260,8 @@ main() {
 5) 手动设置 Security Patch
 6) 写入 AOSP Keybox
 7) 导入本地 Keybox（DocumentsUI）
-8) 退出
+8) 联网更新 Keybox
+9) 退出
 MENU
       printf "请选择操作: "
       read -r choice

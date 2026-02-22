@@ -4,6 +4,7 @@ initialize() {
 
     # Set permission
     set_perm $COMPATH/get_extra.sh 0 2000 0755
+    set_perm $COMPATH/keybox_update.sh 0 2000 0755
 
     # Keep action.sh for all root managers; only Magisk needs update payload
     if [ "$ACTION" = "false" ]; then
@@ -13,6 +14,7 @@ initialize() {
         cp "$COMPATH/.default" "$COMPATH/update/common/.default"
         cp "$MODPATH/uninstall.sh" "$COMPATH/update/uninstall.sh"
         cp "$MODPATH/VerifiedBootHash.txt" "$COMPATH/update/VerifiedBootHash.txt" 2>/dev/null || true
+        cp "$COMPATH/keybox_update.sh" "$COMPATH/update/common/keybox_update.sh" 2>/dev/null || true
     fi
 
 

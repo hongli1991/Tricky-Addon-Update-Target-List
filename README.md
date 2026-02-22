@@ -42,6 +42,7 @@ Configure Tricky Store target.txt directly with `action.sh` (no WebUI required).
 - Set verified boot hash from `VerifiedBootHash.txt` template
 - Auto/manual security patch configuration
 - Set default AOSP keybox or import local keybox via DocumentsUI
+- Online update keybox from multiple sources (Yurikey / TA-UTL / IntegrityBox)
 - Hardware key navigation in action menu (Vol- next with loop, Vol+ confirm/continue; fallback to text input if unavailable)
 
 ## Localization
