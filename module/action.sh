@@ -181,14 +181,23 @@ use_key_menu() {
   command -v getevent >/dev/null 2>&1 || return 1
   getevent -pl 2>/dev/null | grep -q "KEY_VOLUMEUP" || return 1
   getevent -pl 2>/dev/null | grep -q "KEY_VOLUMEDOWN" || return 1
-  getevent -pl 2>/dev/null | grep -q "KEY_POWER" || return 1
   return 0
+}
+
+get_button() {
+  local out
+  button=""
+  while [ -z "$button" ]; do
+    out="$(getevent -qlc 1 2>/dev/null | grep -m 1 'KEY_')"
+    button="$(echo "$out" | awk '{for (i=1;i<=NF;i++) if ($i ~ /^KEY_/) {print $i; exit}}')"
+    sleep 0.15
+  done
 }
 
 render_key_menu() {
   clear 2>/dev/null
   print_header
-  echo "音量键控制：音量上=上移，音量下=下移，电源键=确认"
+  echo "音量键控制：音量下=下一个（循环），音量上=确认"
   echo "------------------------------------------"
 
   idx=1
@@ -204,23 +213,33 @@ render_key_menu() {
 
 wait_key_action() {
   while true; do
-    event_line=$(getevent -qlc 1 2>/dev/null)
-    case "$event_line" in
-      *KEY_VOLUMEUP*DOWN*)
-        MENU_SELECTED=$((MENU_SELECTED - 1))
-        [ "$MENU_SELECTED" -lt 1 ] && MENU_SELECTED=8
-        return 1
-        ;;
-      *KEY_VOLUMEDOWN*DOWN*)
+    get_button
+    case "$button" in
+      KEY_VOLUMEDOWN)
         MENU_SELECTED=$((MENU_SELECTED + 1))
         [ "$MENU_SELECTED" -gt 8 ] && MENU_SELECTED=1
         return 1
         ;;
-      *KEY_POWER*DOWN*)
+      KEY_VOLUMEUP)
         return 0
         ;;
     esac
   done
+}
+
+wait_continue() {
+  if [ "$MENU_USE_KEYS" -eq 1 ]; then
+    echo ""
+    echo "按 音量上 确认继续..."
+    while true; do
+      get_button
+      [ "$button" = "KEY_VOLUMEUP" ] && break
+    done
+  else
+    echo ""
+    echo "按回车继续..."
+    read -r _
+  fi
 }
 
 run_choice() {
@@ -268,9 +287,7 @@ MENU
       read -r choice
       run_choice "$choice"
     fi
-    echo ""
-    echo "按回车继续..."
-    read -r _
+    wait_continue
   done
 }
 

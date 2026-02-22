@@ -1,7 +1,4 @@
 # Tricky Addon - Update Target List
-Thanks to KOW and chatgpt
-this Fork uses the action.sh to replace the webui
-
 Configure Tricky Store target.txt directly with `action.sh` (no WebUI required).
 
 [![Latest Release](https://img.shields.io/github/v/release/KOWX712/Tricky-Addon-Update-Target-List?label=Release&logo=github)](https://github.com/KOWX712/Tricky-Addon-Update-Target-List/releases/latest)
@@ -42,7 +39,7 @@ Configure Tricky Store target.txt directly with `action.sh` (no WebUI required).
 - Set/Clear verified boot hash
 - Auto/manual security patch configuration
 - Set default AOSP keybox or import local keybox
-- Hardware key navigation in action menu (Vol+/Vol- move, Power confirm; fallback to text input if unavailable)
+- Hardware key navigation in action menu (Vol- next with loop, Vol+ confirm/continue; fallback to text input if unavailable)
 
 ## Localization
 - Read [Translation Guide](https://github.com/KOWX712/Tricky-Addon-Update-Target-List/blob/main/webui/public/locales/GUIDE.md)
