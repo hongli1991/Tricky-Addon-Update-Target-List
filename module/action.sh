@@ -1,60 +1,204 @@
+#!/system/bin/sh
 ###########################################
 ## This file is NOT a part of Tricky Store
 ###########################################
 
-MODPATH="/data/adb/modules/.TA_utl"
-ORG_PATH="$PATH"
-TMP_DIR="$MODPATH/common/tmp"
-SCRIPT_DIR="/data/adb/tricky_store"
-APK_PATH="$TMP_DIR/base.apk"
+PATH=/data/adb/ap/bin:/data/adb/ksu/bin:/data/adb/magisk:$PATH
+TS_DIR="/data/adb/tricky_store"
+TARGET_FILE="$TS_DIR/target.txt"
+SYSTEM_APP_FILE="$TS_DIR/system_app"
+SECURITY_PATCH_FILE="$TS_DIR/security_patch.txt"
+SECURITY_PATCH_AUTO="$TS_DIR/security_patch_auto_config"
+DEVCONFIG_FILE="$TS_DIR/devconfig.toml"
+BOOT_HASH_FILE="/data/adb/boot_hash"
+DEFAULT_KEYBOX_HEX="/data/adb/modules/.TA_utl/common/.default"
+[ -f "$DEFAULT_KEYBOX_HEX" ] || DEFAULT_KEYBOX_HEX="/data/adb/modules/TA_utl/common/.default"
 
-manual_download() {
-    echo "$1"
-    sleep 3
-    am start -a android.intent.action.VIEW -d "https://github.com/KOWX712/KsuWebUIStandalone/releases"
+print_header() {
+  echo "=========================================="
+  echo " Tricky Addon - Action Script"
+  echo "=========================================="
+}
+
+ensure_tricky_store() {
+  [ -d "$TS_DIR" ] || {
+    echo "! Tricky Store directory not found: $TS_DIR"
     exit 1
+  }
+  mkdir -p "$TS_DIR"
+  [ -f "$TARGET_FILE" ] || touch "$TARGET_FILE"
 }
 
-download() {
-    PATH=/data/adb/magisk:/data/data/com.termux/files/usr/bin:$PATH
-    if command -v curl >/dev/null 2>&1; then
-        curl --connect-timeout 10 -Ls "$1"
-    else
-        busybox wget -T 10 --no-check-certificate -qO- "$1"
-    fi
-    PATH="$ORG_PATH"
+save_target_from_apps() {
+  cat <<'TIP'
+- 输入要排除的关键字（正则），用空格分隔。
+  直接回车则使用默认值：oneplus coloros miui com.android.patch me.bmax.apatch me.garfieldhan.apatch.next
+TIP
+  printf "> "
+  read -r user_exclude
+
+  [ -n "$user_exclude" ] || user_exclude="oneplus coloros miui com.android.patch me.bmax.apatch me.garfieldhan.apatch.next"
+  exclude_pattern=$(echo "$user_exclude" | tr ' ' '|' | sed 's/||*/|/g;s/^|//;s/|$//')
+
+  pm list packages -3 | awk -F: '{print $2}' | grep -Ev "$exclude_pattern" | sort -u > "$TARGET_FILE"
+
+  if [ -f "$SYSTEM_APP_FILE" ]; then
+    sed '/^#/d;/^$/d' "$SYSTEM_APP_FILE" | while read -r pkg; do
+      pm list packages -s | grep -q "$pkg" && echo "$pkg" >> "$TARGET_FILE"
+    done
+    sort -u "$TARGET_FILE" -o "$TARGET_FILE"
+  fi
+
+  echo "- 已生成 target.txt ($(wc -l < "$TARGET_FILE") 项)"
 }
 
-get_webui() {
-    echo "- Downloading KSU WebUI Standalone..."
-    API="https://api.github.com/repos/KOWX712/KsuWebUIStandalone/releases/latest"
-    ping -c 1 -w 5 raw.githubusercontent.com &>/dev/null || manual_download "! Error: Unable to connect to raw.githubusercontent.com, please download manually."
-    URL=$(download "$API" | grep -o '"browser_download_url": "[^"]*"' | cut -d '"' -f 4) || manual_download "! Error: Unable to get latest version, please download manually."
-    download "$URL" > "$APK_PATH" || manual_download "! Error: APK download failed, please download manually."
+add_denylist_to_target() {
+  command -v magisk >/dev/null 2>&1 || {
+    echo "! 未检测到 magisk，无法读取 denylist"
+    return 1
+  }
 
-    echo "- Installing..."
-    pm install -r "$APK_PATH" || {
-        rm -f "$APK_PATH"
-        manual_download "! Error: APK installation failed, please download manually.."
-    }
+  exclamation_target=$(grep '!' "$TARGET_FILE" | sed 's/!$//')
+  question_target=$(grep '?' "$TARGET_FILE" | sed 's/?$//')
+  target=$(sed 's/[!?]$//' "$TARGET_FILE")
+  denylist=$(magisk --denylist ls 2>/dev/null | awk -F'|' '{print $1}' | grep -v "isolated")
 
-    echo "- Done."
-    rm -f "$APK_PATH"
+  printf "%s\n" "$target" "$denylist" | sed '/^$/d' | sort -u > "$TARGET_FILE"
 
-    echo "- Launching WebUI..."
-    am start -n "io.github.a13e300.ksuwebui/.WebUIActivity" -e id "tricky_store"
+  for t in $exclamation_target; do
+    sed -i "s/^$t$/$t!/" "$TARGET_FILE"
+  done
+  for t in $question_target; do
+    sed -i "s/^$t$/$t?/" "$TARGET_FILE"
+  done
+
+  touch "$TS_DIR/target_from_denylist"
+  echo "- 已合并 denylist 到 target.txt"
 }
 
-# Launch KSUWebUI standalone or MMRL, install KSUWebUI standalone if both are not installed
-if pm path io.github.a13e300.ksuwebui >/dev/null 2>&1; then
-    echo "- Launching WebUI in KSUWebUIStandalone..."
-    am start -n "io.github.a13e300.ksuwebui/.WebUIActivity" -e id "tricky_store"
-elif pm path com.dergoogler.mmrl.wx > /dev/null 2>&1; then
-    echo "- Launching WebUI in WebUI X..."
-    am start -n "com.dergoogler.mmrl.wx/.ui.activity.webui.WebUIActivity" -e MOD_ID "tricky_store"
-else
-    echo "! No WebUI app found"
-    get_webui
-fi
+set_boot_hash() {
+  cur_hash=""
+  [ -f "$BOOT_HASH_FILE" ] && cur_hash=$(sed '/^#/d;/^$/d' "$BOOT_HASH_FILE")
+  echo "当前 boot hash: ${cur_hash:-<空>}"
+  echo "输入新的 vbmeta digest（留空则清除）:"
+  printf "> "
+  read -r hash
+  hash=$(echo "$hash" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
 
-echo "- WebUI launched successfully."
+  resetprop -n ro.boot.vbmeta.digest "$hash"
+  if [ -z "$hash" ]; then
+    rm -f "$BOOT_HASH_FILE"
+    echo "- 已清除 boot_hash"
+  else
+    echo "$hash" > "$BOOT_HASH_FILE"
+    chmod 644 "$BOOT_HASH_FILE"
+    echo "- 已写入 boot_hash"
+  fi
+}
+
+set_security_patch_manual() {
+  echo "输入 Security Patch 日期(YYYY-MM-DD)，例如 2025-01-05："
+  printf "> "
+  read -r patch
+  if ! echo "$patch" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+    echo "! 格式无效"
+    return 1
+  fi
+
+  if grep -q "James" "/data/adb/modules/tricky_store/module.prop" && ! grep -q "beakthoven" "/data/adb/modules/tricky_store/module.prop"; then
+    cat > "$DEVCONFIG_FILE" <<EOC
+securityPatch = "$patch"
+EOC
+    echo "- 已写入 devconfig.toml"
+  else
+    cat > "$SECURITY_PATCH_FILE" <<EOC
+system=prop
+boot=$patch
+vendor=$patch
+EOC
+    chmod 644 "$SECURITY_PATCH_FILE"
+    rm -f "$SECURITY_PATCH_AUTO"
+    echo "- 已写入 security_patch.txt"
+  fi
+}
+
+set_security_patch_auto() {
+  sh /data/adb/modules/TA_utl/common/get_extra.sh --security-patch >/dev/null 2>&1 || \
+  sh /data/adb/modules/.TA_utl/common/get_extra.sh --security-patch >/dev/null 2>&1
+
+  if [ $? -eq 0 ]; then
+    touch "$SECURITY_PATCH_AUTO"
+    echo "- 已自动配置 security patch"
+  else
+    echo "! 自动配置失败"
+    return 1
+  fi
+}
+
+set_aosp_keybox() {
+  [ -f "$DEFAULT_KEYBOX_HEX" ] || {
+    echo "! 找不到默认 keybox 数据"
+    return 1
+  }
+
+  mv -f "$TS_DIR/keybox.xml" "$TS_DIR/keybox.xml.bak" 2>/dev/null
+  xxd -r -p "$DEFAULT_KEYBOX_HEX" | base64 -d > "$TS_DIR/keybox.xml" || {
+    echo "! 写入 keybox 失败"
+    return 1
+  }
+  chmod 644 "$TS_DIR/keybox.xml"
+  echo "- 已写入 AOSP keybox"
+}
+
+import_local_keybox() {
+  echo "输入本地 keybox.xml 路径："
+  printf "> "
+  read -r kb_path
+  [ -f "$kb_path" ] || {
+    echo "! 文件不存在: $kb_path"
+    return 1
+  }
+
+  mv -f "$TS_DIR/keybox.xml" "$TS_DIR/keybox.xml.bak" 2>/dev/null
+  cp -f "$kb_path" "$TS_DIR/keybox.xml"
+  chmod 644 "$TS_DIR/keybox.xml"
+  echo "- 已导入 keybox"
+}
+
+show_menu() {
+  cat <<'MENU'
+1) 生成 target.txt（用户应用 + system_app）
+2) 合并 Magisk DenyList 到 target.txt
+3) 设置 VerifiedBootHash
+4) 自动设置 Security Patch
+5) 手动设置 Security Patch
+6) 写入 AOSP Keybox
+7) 导入本地 Keybox
+0) 退出
+MENU
+}
+
+main() {
+  ensure_tricky_store
+  print_header
+
+  while true; do
+    show_menu
+    printf "请选择操作: "
+    read -r choice
+    case "$choice" in
+      1) save_target_from_apps ;;
+      2) add_denylist_to_target ;;
+      3) set_boot_hash ;;
+      4) set_security_patch_auto ;;
+      5) set_security_patch_manual ;;
+      6) set_aosp_keybox ;;
+      7) import_local_keybox ;;
+      0) echo "- 退出"; exit 0 ;;
+      *) echo "! 无效选项" ;;
+    esac
+    echo ""
+  done
+}
+
+main "$@"

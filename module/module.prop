@@ -3,5 +3,5 @@ name=Tricky Addon - Update Target List
 version=v4.3
 versionCode=635
 author=KOWX712
-description=A WebUI to conifgure tricky store target.txt 
+description=Action script to configure tricky store target.txt without WebUI
 updateJson=https://raw.githubusercontent.com/KOWX712/Tricky-Addon-Update-Target-List/main/update.json
