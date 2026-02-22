@@ -1,4 +1,7 @@
 # Tricky Addon - Update Target List
+## This fork use the action.sh to replace the webui
+### thanks to KOWX712
+
 Configure Tricky Store target.txt directly with `action.sh` (no WebUI required).
 
 [![Latest Release](https://img.shields.io/github/v/release/KOWX712/Tricky-Addon-Update-Target-List?label=Release&logo=github)](https://github.com/KOWX712/Tricky-Addon-Update-Target-List/releases/latest)
