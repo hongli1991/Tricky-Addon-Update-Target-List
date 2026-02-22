@@ -39,6 +39,7 @@ Configure Tricky Store target.txt directly with `action.sh` (no WebUI required).
 - Set/Clear verified boot hash
 - Auto/manual security patch configuration
 - Set default AOSP keybox or import local keybox
+- Hardware key navigation in action menu (Vol+/Vol- move, Power confirm; fallback to text input if unavailable)
 
 ## Localization
 - Read [Translation Guide](https://github.com/KOWX712/Tricky-Addon-Update-Target-List/blob/main/webui/public/locales/GUIDE.md)

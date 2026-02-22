@@ -14,6 +14,18 @@ BOOT_HASH_FILE="/data/adb/boot_hash"
 DEFAULT_KEYBOX_HEX="/data/adb/modules/.TA_utl/common/.default"
 [ -f "$DEFAULT_KEYBOX_HEX" ] || DEFAULT_KEYBOX_HEX="/data/adb/modules/TA_utl/common/.default"
 
+MENU_ITEMS="
+生成 target.txt（用户应用 + system_app）
+合并 Magisk DenyList 到 target.txt
+设置 VerifiedBootHash
+自动设置 Security Patch
+手动设置 Security Patch
+写入 AOSP Keybox
+导入本地 Keybox
+退出"
+MENU_SELECTED=1
+MENU_USE_KEYS=0
+
 print_header() {
   echo "=========================================="
   echo " Tricky Addon - Action Script"
@@ -165,8 +177,84 @@ import_local_keybox() {
   echo "- 已导入 keybox"
 }
 
-show_menu() {
-  cat <<'MENU'
+use_key_menu() {
+  command -v getevent >/dev/null 2>&1 || return 1
+  getevent -pl 2>/dev/null | grep -q "KEY_VOLUMEUP" || return 1
+  getevent -pl 2>/dev/null | grep -q "KEY_VOLUMEDOWN" || return 1
+  getevent -pl 2>/dev/null | grep -q "KEY_POWER" || return 1
+  return 0
+}
+
+render_key_menu() {
+  clear 2>/dev/null
+  print_header
+  echo "音量键控制：音量上=上移，音量下=下移，电源键=确认"
+  echo "------------------------------------------"
+
+  idx=1
+  echo "$MENU_ITEMS" | sed '/^$/d' | while IFS= read -r item; do
+    if [ "$idx" -eq "$MENU_SELECTED" ]; then
+      echo "> [$idx] $item"
+    else
+      echo "  [$idx] $item"
+    fi
+    idx=$((idx + 1))
+  done
+}
+
+wait_key_action() {
+  while true; do
+    event_line=$(getevent -qlc 1 2>/dev/null)
+    case "$event_line" in
+      *KEY_VOLUMEUP*DOWN*)
+        MENU_SELECTED=$((MENU_SELECTED - 1))
+        [ "$MENU_SELECTED" -lt 1 ] && MENU_SELECTED=8
+        return 1
+        ;;
+      *KEY_VOLUMEDOWN*DOWN*)
+        MENU_SELECTED=$((MENU_SELECTED + 1))
+        [ "$MENU_SELECTED" -gt 8 ] && MENU_SELECTED=1
+        return 1
+        ;;
+      *KEY_POWER*DOWN*)
+        return 0
+        ;;
+    esac
+  done
+}
+
+run_choice() {
+  case "$1" in
+    1) save_target_from_apps ;;
+    2) add_denylist_to_target ;;
+    3) set_boot_hash ;;
+    4) set_security_patch_auto ;;
+    5) set_security_patch_manual ;;
+    6) set_aosp_keybox ;;
+    7) import_local_keybox ;;
+    8) echo "- 退出"; exit 0 ;;
+    *) echo "! 无效选项" ;;
+  esac
+}
+
+main() {
+  ensure_tricky_store
+
+  if use_key_menu; then
+    MENU_USE_KEYS=1
+  fi
+
+  while true; do
+    if [ "$MENU_USE_KEYS" -eq 1 ]; then
+      render_key_menu
+      wait_key_action
+      [ $? -eq 0 ] || continue
+      clear 2>/dev/null
+      print_header
+      run_choice "$MENU_SELECTED"
+    else
+      print_header
+      cat <<'MENU'
 1) 生成 target.txt（用户应用 + system_app）
 2) 合并 Magisk DenyList 到 target.txt
 3) 设置 VerifiedBootHash
@@ -174,30 +262,15 @@ show_menu() {
 5) 手动设置 Security Patch
 6) 写入 AOSP Keybox
 7) 导入本地 Keybox
-0) 退出
+8) 退出
 MENU
-}
-
-main() {
-  ensure_tricky_store
-  print_header
-
-  while true; do
-    show_menu
-    printf "请选择操作: "
-    read -r choice
-    case "$choice" in
-      1) save_target_from_apps ;;
-      2) add_denylist_to_target ;;
-      3) set_boot_hash ;;
-      4) set_security_patch_auto ;;
-      5) set_security_patch_manual ;;
-      6) set_aosp_keybox ;;
-      7) import_local_keybox ;;
-      0) echo "- 退出"; exit 0 ;;
-      *) echo "! 无效选项" ;;
-    esac
+      printf "请选择操作: "
+      read -r choice
+      run_choice "$choice"
+    fi
     echo ""
+    echo "按回车继续..."
+    read -r _
   done
 }
 
