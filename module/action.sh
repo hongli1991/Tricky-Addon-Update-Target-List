@@ -11,17 +11,19 @@ SECURITY_PATCH_FILE="$TS_DIR/security_patch.txt"
 SECURITY_PATCH_AUTO="$TS_DIR/security_patch_auto_config"
 DEVCONFIG_FILE="$TS_DIR/devconfig.toml"
 BOOT_HASH_FILE="/data/adb/boot_hash"
+ACTION_DIR="${0%/*}"
+VBH_TEMPLATE_FILE="$ACTION_DIR/VerifiedBootHash.txt"
 DEFAULT_KEYBOX_HEX="/data/adb/modules/.TA_utl/common/.default"
 [ -f "$DEFAULT_KEYBOX_HEX" ] || DEFAULT_KEYBOX_HEX="/data/adb/modules/TA_utl/common/.default"
 
 MENU_ITEMS="
 生成 target.txt（用户应用 + system_app）
 合并 Magisk DenyList 到 target.txt
-设置 VerifiedBootHash
+设置 VerifiedBootHash（读取模块模板）
 自动设置 Security Patch
 手动设置 Security Patch
 写入 AOSP Keybox
-导入本地 Keybox
+导入本地 Keybox（DocumentsUI）
 退出"
 MENU_SELECTED=1
 MENU_USE_KEYS=0
@@ -39,6 +41,13 @@ ensure_tricky_store() {
   }
   mkdir -p "$TS_DIR"
   [ -f "$TARGET_FILE" ] || touch "$TARGET_FILE"
+}
+
+ensure_template_files() {
+  if [ ! -f "$VBH_TEMPLATE_FILE" ]; then
+    touch "$VBH_TEMPLATE_FILE"
+    chmod 644 "$VBH_TEMPLATE_FILE"
+  fi
 }
 
 save_target_from_apps() {
@@ -89,23 +98,17 @@ add_denylist_to_target() {
 }
 
 set_boot_hash() {
-  cur_hash=""
-  [ -f "$BOOT_HASH_FILE" ] && cur_hash=$(sed '/^#/d;/^$/d' "$BOOT_HASH_FILE")
-  echo "当前 boot hash: ${cur_hash:-<空>}"
-  echo "输入新的 vbmeta digest（留空则清除）:"
-  printf "> "
-  read -r hash
-  hash=$(echo "$hash" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+  ensure_template_files
+  hash=$(sed '/^#/d;/^$/d' "$VBH_TEMPLATE_FILE" | head -n 1 | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+  if [ -z "$hash" ]; then
+    echo "! $VBH_TEMPLATE_FILE 为空，请先写入 vbmeta digest"
+    return 1
+  fi
 
   resetprop -n ro.boot.vbmeta.digest "$hash"
-  if [ -z "$hash" ]; then
-    rm -f "$BOOT_HASH_FILE"
-    echo "- 已清除 boot_hash"
-  else
-    echo "$hash" > "$BOOT_HASH_FILE"
-    chmod 644 "$BOOT_HASH_FILE"
-    echo "- 已写入 boot_hash"
-  fi
+  echo "$hash" > "$BOOT_HASH_FILE"
+  chmod 644 "$BOOT_HASH_FILE"
+  echo "- 已从 VerifiedBootHash.txt 自动写入 boot_hash"
 }
 
 set_security_patch_manual() {
@@ -162,19 +165,34 @@ set_aosp_keybox() {
   echo "- 已写入 AOSP keybox"
 }
 
+pick_keybox_path_via_documentsui() {
+  am start -a android.intent.action.OPEN_DOCUMENT -t "text/xml" >/dev/null 2>&1 || \
+  am start -n com.android.documentsui/.files.FilesActivity >/dev/null 2>&1
+
+  echo "- 已打开 DocumentsUI，请选择 keybox.xml"
+  echo "- 选完后返回，然后按 音量上 继续"
+  wait_for_volume_up
+
+  picked=$(find /sdcard /storage/emulated/0 -type f -name 'keybox.xml' 2>/dev/null | while read -r f; do
+    echo "$(stat -c '%Y %n' "$f" 2>/dev/null)"
+  done | sort -nr | head -n 1 | cut -d' ' -f2-)
+
+  [ -n "$picked" ] || return 1
+  echo "$picked"
+  return 0
+}
+
 import_local_keybox() {
-  echo "输入本地 keybox.xml 路径："
-  printf "> "
-  read -r kb_path
-  [ -f "$kb_path" ] || {
-    echo "! 文件不存在: $kb_path"
+  kb_path=$(pick_keybox_path_via_documentsui)
+  if [ -z "$kb_path" ] || [ ! -f "$kb_path" ]; then
+    echo "! 未找到可用 keybox.xml，请确认文件名是 keybox.xml"
     return 1
-  }
+  fi
 
   mv -f "$TS_DIR/keybox.xml" "$TS_DIR/keybox.xml.bak" 2>/dev/null
   cp -f "$kb_path" "$TS_DIR/keybox.xml"
   chmod 644 "$TS_DIR/keybox.xml"
-  echo "- 已导入 keybox"
+  echo "- 已导入 keybox: $kb_path"
 }
 
 use_key_menu() {
@@ -192,6 +210,18 @@ get_button() {
     button="$(echo "$out" | awk '{for (i=1;i<=NF;i++) if ($i ~ /^KEY_/) {print $i; exit}}')"
     sleep 0.15
   done
+}
+
+wait_for_volume_up() {
+  if [ "$MENU_USE_KEYS" -eq 1 ]; then
+    while true; do
+      get_button
+      [ "$button" = "KEY_VOLUMEUP" ] && break
+    done
+  else
+    echo "按回车继续..."
+    read -r _
+  fi
 }
 
 render_key_menu() {
@@ -228,18 +258,15 @@ wait_key_action() {
 }
 
 wait_continue() {
-  if [ "$MENU_USE_KEYS" -eq 1 ]; then
-    echo ""
-    echo "按 音量上 确认继续..."
-    while true; do
-      get_button
-      [ "$button" = "KEY_VOLUMEUP" ] && break
-    done
-  else
-    echo ""
-    echo "按回车继续..."
-    read -r _
-  fi
+  echo ""
+  echo "按 音量上 确认继续..."
+  wait_for_volume_up
+}
+
+exit_script() {
+  echo "- 退出"
+  kill -TERM $$ >/dev/null 2>&1
+  exit 0
 }
 
 run_choice() {
@@ -251,13 +278,14 @@ run_choice() {
     5) set_security_patch_manual ;;
     6) set_aosp_keybox ;;
     7) import_local_keybox ;;
-    8) echo "- 退出"; exit 0 ;;
+    8) exit_script ;;
     *) echo "! 无效选项" ;;
   esac
 }
 
 main() {
   ensure_tricky_store
+  ensure_template_files
 
   if use_key_menu; then
     MENU_USE_KEYS=1
@@ -276,11 +304,11 @@ main() {
       cat <<'MENU'
 1) 生成 target.txt（用户应用 + system_app）
 2) 合并 Magisk DenyList 到 target.txt
-3) 设置 VerifiedBootHash
+3) 设置 VerifiedBootHash（读取模块模板）
 4) 自动设置 Security Patch
 5) 手动设置 Security Patch
 6) 写入 AOSP Keybox
-7) 导入本地 Keybox
+7) 导入本地 Keybox（DocumentsUI）
 8) 退出
 MENU
       printf "请选择操作: "

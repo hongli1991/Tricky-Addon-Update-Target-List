@@ -12,7 +12,13 @@ initialize() {
         mkdir -p "$COMPATH/update/common"
         cp "$COMPATH/.default" "$COMPATH/update/common/.default"
         cp "$MODPATH/uninstall.sh" "$COMPATH/update/uninstall.sh"
+        cp "$MODPATH/VerifiedBootHash.txt" "$COMPATH/update/VerifiedBootHash.txt" 2>/dev/null || true
     fi
+
+
+    # Create boot hash template for action.sh auto apply
+    [ -f "$MODPATH/VerifiedBootHash.txt" ] || touch "$MODPATH/VerifiedBootHash.txt"
+    chmod 0644 "$MODPATH/VerifiedBootHash.txt"
 
     # Backup module.prop
     cp "$MODPATH/module.prop" "$COMPATH/update/module.prop"
