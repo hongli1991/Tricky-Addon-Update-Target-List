@@ -48,7 +48,7 @@ if [ -f "$MODPATH/action.sh" ]; then
     MODPATH="$HIDE_DIR"
 
     # Add target from denylist
-    # To trigger this, choose "Select from DenyList" in WebUI once
+    # To trigger this, run denylist merge once in action.sh menu
     [ -f "/data/adb/tricky_store/target_from_denylist" ] && add_denylist_to_target
 else
     [ -d "$HIDE_DIR" ] && rm -rf "$HIDE_DIR"
@@ -60,9 +60,6 @@ rm -f "$MODPATH/module.prop"
 # Symlink tricky store
 if [ -f "$MODPATH/action.sh" ] && [ ! -e "$TS/action.sh" ]; then
     ln -s "$MODPATH/action.sh" "$TS/action.sh"
-fi
-if [ ! -e "$TS/webroot" ]; then
-    ln -s "$MODPATH/webui" "$TS/webroot"
 fi
 
 until [ "$(getprop sys.boot_completed)" = "1" ]; do
