@@ -1,0 +1,6 @@
+oneplus
+coloros
+miui
+com.android.patch
+me.bmax.apatch
+me.garfieldhan.apatch.next

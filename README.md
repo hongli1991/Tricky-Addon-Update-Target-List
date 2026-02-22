@@ -1,5 +1,5 @@
 # Tricky Addon - Update Target List
-Configure Tricky Store target.txt with KSU WebUI.
+Configure Tricky Store target.txt directly with `action.sh` (no WebUI required).
 
 [![Latest Release](https://img.shields.io/github/v/release/KOWX712/Tricky-Addon-Update-Target-List?label=Release&logo=github)](https://github.com/KOWX712/Tricky-Addon-Update-Target-List/releases/latest)
 [![Nightly Release](https://custom-icon-badges.demolab.com/badge/Nightly-canary_build-640064?logo=nightly-logo)](https://nightly.link/KOWX712/Tricky-Addon-Update-Target-List/workflows/build/main?status=completed)
@@ -12,12 +12,10 @@ Configure Tricky Store target.txt with KSU WebUI.
 
 ## Instructions
 ### KernelSU & Apatch
-- KSU WebUI
+- Open module action and use terminal menu (`action.sh`)
 
 ### Magisk
-- Action button to open WebUI
-- Support [KSUWebUIStandalone](https://github.com/5ec1cff/KsuWebUIStandalone) and [WebUI X](https://github.com/MMRLApp/WebUI-X-Portable)
-- Automatic KSUWebUIStandalone install if none of them are installed.
+- Use action button to run script menu (`action.sh`)
 
 ### What Can This Module Do
 | Feature                                                                                                                                                                      | Status |
@@ -33,6 +31,16 @@ Configure Tricky Store target.txt with KSU WebUI.
 | Add system apps `not recommended`                                                                                                                                            |   ✅    |
 | Valid Keybox `not guaranteed`                                                                                                                                                |   ❌    |
 | Periodically add all app to target.txt                                                                                                                                       |   ❌    |
+
+## Action Script Menu
+`module/action.sh` now provides a terminal menu for the core operations previously handled in WebUI:
+- Generate `target.txt` from installed apps (reads exclusion patterns in `ExcludeList.txt`)
+- Merge Magisk DenyList to `target.txt`
+- Set verified boot hash from `VerifiedBootHash.txt` template
+- Auto security patch configuration
+- Set default AOSP keybox or import local keybox via DocumentsUI
+- Online update keybox from multiple sources (Yurikey / TA-UTL / IntegrityBox)
+- Hardware key navigation in action menu (Vol- next with loop, Vol+ confirm/continue; fallback to text input if unavailable)
 
 ## Localization
 - Read [Translation Guide](https://github.com/KOWX712/Tricky-Addon-Update-Target-List/blob/main/webui/public/locales/GUIDE.md)
