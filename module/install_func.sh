@@ -14,13 +14,22 @@ initialize() {
         cp "$COMPATH/.default" "$COMPATH/update/common/.default"
         cp "$MODPATH/uninstall.sh" "$COMPATH/update/uninstall.sh"
         cp "$MODPATH/VerifiedBootHash.txt" "$COMPATH/update/VerifiedBootHash.txt" 2>/dev/null || true
+        cp "$MODPATH/ExcludeList.txt" "$COMPATH/update/ExcludeList.txt" 2>/dev/null || true
         cp "$COMPATH/keybox_update.sh" "$COMPATH/update/common/keybox_update.sh" 2>/dev/null || true
     fi
 
 
-    # Create boot hash template for action.sh auto apply
+    # Create templates for action.sh auto apply
     [ -f "$MODPATH/VerifiedBootHash.txt" ] || touch "$MODPATH/VerifiedBootHash.txt"
-    chmod 0644 "$MODPATH/VerifiedBootHash.txt"
+    [ -f "$MODPATH/ExcludeList.txt" ] || cat > "$MODPATH/ExcludeList.txt" <<'EOT'
+oneplus
+coloros
+miui
+com.android.patch
+me.bmax.apatch
+me.garfieldhan.apatch.next
+EOT
+    chmod 0644 "$MODPATH/VerifiedBootHash.txt" "$MODPATH/ExcludeList.txt"
 
     # Backup module.prop
     cp "$MODPATH/module.prop" "$COMPATH/update/module.prop"

@@ -7,22 +7,21 @@ PATH=/data/adb/ap/bin:/data/adb/ksu/bin:/data/adb/magisk:$PATH
 TS_DIR="/data/adb/tricky_store"
 TARGET_FILE="$TS_DIR/target.txt"
 SYSTEM_APP_FILE="$TS_DIR/system_app"
-SECURITY_PATCH_FILE="$TS_DIR/security_patch.txt"
 SECURITY_PATCH_AUTO="$TS_DIR/security_patch_auto_config"
-DEVCONFIG_FILE="$TS_DIR/devconfig.toml"
 BOOT_HASH_FILE="/data/adb/boot_hash"
-ACTION_DIR="${0%/*}"
-VBH_TEMPLATE_FILE="$ACTION_DIR/VerifiedBootHash.txt"
-KEYBOX_UPDATE_SCRIPT="$ACTION_DIR/common/keybox_update.sh"
-DEFAULT_KEYBOX_HEX="/data/adb/modules/.TA_utl/common/.default"
-[ -f "$DEFAULT_KEYBOX_HEX" ] || DEFAULT_KEYBOX_HEX="/data/adb/modules/TA_utl/common/.default"
+
+MODDIR=""
+ACTION_DIR=""
+VBH_TEMPLATE_FILE=""
+EXCLUDE_TEMPLATE_FILE=""
+KEYBOX_UPDATE_SCRIPT=""
+DEFAULT_KEYBOX_HEX=""
 
 MENU_ITEMS="
-生成 target.txt（用户应用 + system_app）
+生成 target.txt（读取 ExcludeList.txt）
 合并 Magisk DenyList 到 target.txt
-设置 VerifiedBootHash（读取模块模板）
+设置 VerifiedBootHash（读取模板）
 自动设置 Security Patch
-手动设置 Security Patch
 写入 AOSP Keybox
 导入本地 Keybox（DocumentsUI）
 联网更新 Keybox
@@ -36,6 +35,22 @@ print_header() {
   echo "=========================================="
 }
 
+resolve_paths() {
+  if [ -d "/data/adb/modules/.TA_utl" ]; then
+    MODDIR="/data/adb/modules/.TA_utl"
+  elif [ -d "/data/adb/modules/TA_utl" ]; then
+    MODDIR="/data/adb/modules/TA_utl"
+  else
+    MODDIR="${0%/*}"
+  fi
+
+  ACTION_DIR="$MODDIR"
+  VBH_TEMPLATE_FILE="$ACTION_DIR/VerifiedBootHash.txt"
+  EXCLUDE_TEMPLATE_FILE="$ACTION_DIR/ExcludeList.txt"
+  KEYBOX_UPDATE_SCRIPT="$ACTION_DIR/common/keybox_update.sh"
+  DEFAULT_KEYBOX_HEX="$ACTION_DIR/common/.default"
+}
+
 ensure_tricky_store() {
   [ -d "$TS_DIR" ] || {
     echo "! Tricky Store directory not found: $TS_DIR"
@@ -47,17 +62,23 @@ ensure_tricky_store() {
 
 ensure_template_files() {
   [ -f "$VBH_TEMPLATE_FILE" ] || touch "$VBH_TEMPLATE_FILE"
-  chmod 644 "$VBH_TEMPLATE_FILE"
+  [ -f "$EXCLUDE_TEMPLATE_FILE" ] || cat > "$EXCLUDE_TEMPLATE_FILE" <<'EOT'
+oneplus
+coloros
+miui
+com.android.patch
+me.bmax.apatch
+me.garfieldhan.apatch.next
+EOT
+  chmod 644 "$VBH_TEMPLATE_FILE" "$EXCLUDE_TEMPLATE_FILE"
 }
 
 save_target_from_apps() {
-  echo "- 输入要排除的关键字（正则），空格分隔；留空用默认值"
-  printf "> "
-  read -r user_exclude
-  [ -n "$user_exclude" ] || user_exclude="oneplus coloros miui com.android.patch me.bmax.apatch me.garfieldhan.apatch.next"
-  exclude_pattern=$(echo "$user_exclude" | tr ' ' '|' | sed 's/||*/|/g;s/^|//;s/|$//')
+  exclude_pattern=$(sed '/^#/d;/^$/d' "$EXCLUDE_TEMPLATE_FILE" | tr '\n' '|' | sed 's/|$//')
+  [ -n "$exclude_pattern" ] || exclude_pattern='^$'
 
   pm list packages -3 | awk -F: '{print $2}' | grep -Ev "$exclude_pattern" | sort -u > "$TARGET_FILE"
+
   if [ -f "$SYSTEM_APP_FILE" ]; then
     sed '/^#/d;/^$/d' "$SYSTEM_APP_FILE" | while read -r pkg; do
       pm list packages -s | grep -q "$pkg" && echo "$pkg" >> "$TARGET_FILE"
@@ -81,7 +102,6 @@ add_denylist_to_target() {
 }
 
 set_boot_hash() {
-  ensure_template_files
   hash=$(sed '/^#/d;/^$/d' "$VBH_TEMPLATE_FILE" | head -n 1 | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
   [ -n "$hash" ] || { echo "! $VBH_TEMPLATE_FILE 为空"; return 1; }
   resetprop -n ro.boot.vbmeta.digest "$hash"
@@ -90,25 +110,8 @@ set_boot_hash() {
   echo "- 已写入 boot_hash"
 }
 
-set_security_patch_manual() {
-  echo "输入 Security Patch 日期(YYYY-MM-DD)："
-  printf "> "
-  read -r patch
-  echo "$patch" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' || { echo "! 格式无效"; return 1; }
-
-  if grep -q "James" "/data/adb/modules/tricky_store/module.prop" && ! grep -q "beakthoven" "/data/adb/modules/tricky_store/module.prop"; then
-    printf 'securityPatch = "%s"\n' "$patch" > "$DEVCONFIG_FILE"
-  else
-    printf 'system=prop\nboot=%s\nvendor=%s\n' "$patch" "$patch" > "$SECURITY_PATCH_FILE"
-    chmod 644 "$SECURITY_PATCH_FILE"
-    rm -f "$SECURITY_PATCH_AUTO"
-  fi
-  echo "- 已设置 security patch"
-}
-
 set_security_patch_auto() {
-  sh /data/adb/modules/TA_utl/common/get_extra.sh --security-patch >/dev/null 2>&1 || \
-  sh /data/adb/modules/.TA_utl/common/get_extra.sh --security-patch >/dev/null 2>&1
+  sh "$MODDIR/common/get_extra.sh" --security-patch >/dev/null 2>&1
   [ $? -eq 0 ] && { touch "$SECURITY_PATCH_AUTO"; echo "- 自动配置成功"; } || { echo "! 自动配置失败"; return 1; }
 }
 
@@ -123,12 +126,10 @@ set_aosp_keybox() {
 pick_keybox_path_via_documentsui() {
   am start -a android.intent.action.OPEN_DOCUMENT -t "text/xml" >/dev/null 2>&1 || \
   am start -n com.android.documentsui/.files.FilesActivity >/dev/null 2>&1
-
   echo "- 已打开 DocumentsUI，请选择 keybox.xml" >&2
   echo "- 返回后按 音量上 继续" >&2
   wait_for_volume_up
 
-  # 更稳：寻找最近修改且内容像 keybox 的 xml
   find /sdcard /storage/emulated/0 -type f -name '*.xml' 2>/dev/null | while read -r f; do
     grep -q "AndroidAttestation" "$f" 2>/dev/null || continue
     stat -c '%Y %n' "$f" 2>/dev/null || echo "0 $f"
@@ -137,10 +138,7 @@ pick_keybox_path_via_documentsui() {
 
 import_local_keybox() {
   kb_path=$(pick_keybox_path_via_documentsui)
-  if [ -z "$kb_path" ] || [ ! -f "$kb_path" ]; then
-    echo "! 无法获取 keybox 路径或文件无效"
-    return 1
-  fi
+  [ -n "$kb_path" ] && [ -f "$kb_path" ] || { echo "! 无法获取 keybox 路径或文件无效"; return 1; }
   mv -f "$TS_DIR/keybox.xml" "$TS_DIR/keybox.xml.bak" 2>/dev/null
   cp -f "$kb_path" "$TS_DIR/keybox.xml"
   chmod 644 "$TS_DIR/keybox.xml"
@@ -149,12 +147,8 @@ import_local_keybox() {
 
 update_keybox_online() {
   [ -x "$KEYBOX_UPDATE_SCRIPT" ] || chmod 755 "$KEYBOX_UPDATE_SCRIPT" 2>/dev/null
-  if [ -x "$KEYBOX_UPDATE_SCRIPT" ]; then
-    sh "$KEYBOX_UPDATE_SCRIPT"
-  else
-    echo "! 在线更新脚本不存在: $KEYBOX_UPDATE_SCRIPT"
-    return 1
-  fi
+  [ -x "$KEYBOX_UPDATE_SCRIPT" ] || { echo "! 在线更新脚本不存在: $KEYBOX_UPDATE_SCRIPT"; return 1; }
+  sh "$KEYBOX_UPDATE_SCRIPT"
 }
 
 use_key_menu() {
@@ -203,7 +197,7 @@ wait_key_action() {
     get_button
     case "$button" in
       KEY_VOLUMEDOWN)
-        MENU_SELECTED=$((MENU_SELECTED + 1)); [ "$MENU_SELECTED" -gt 9 ] && MENU_SELECTED=1; return 1 ;;
+        MENU_SELECTED=$((MENU_SELECTED + 1)); [ "$MENU_SELECTED" -gt 8 ] && MENU_SELECTED=1; return 1 ;;
       KEY_VOLUMEUP)
         return 0 ;;
     esac
@@ -228,16 +222,16 @@ run_choice() {
     2) add_denylist_to_target ;;
     3) set_boot_hash ;;
     4) set_security_patch_auto ;;
-    5) set_security_patch_manual ;;
-    6) set_aosp_keybox ;;
-    7) import_local_keybox ;;
-    8) update_keybox_online ;;
-    9) exit_script ;;
+    5) set_aosp_keybox ;;
+    6) import_local_keybox ;;
+    7) update_keybox_online ;;
+    8) exit_script ;;
     *) echo "! 无效选项" ;;
   esac
 }
 
 main() {
+  resolve_paths
   ensure_tricky_store
   ensure_template_files
   use_key_menu && MENU_USE_KEYS=1
@@ -253,15 +247,14 @@ main() {
     else
       print_header
       cat <<'MENU'
-1) 生成 target.txt（用户应用 + system_app）
+1) 生成 target.txt（读取 ExcludeList.txt）
 2) 合并 Magisk DenyList 到 target.txt
-3) 设置 VerifiedBootHash（读取模块模板）
+3) 设置 VerifiedBootHash（读取模板）
 4) 自动设置 Security Patch
-5) 手动设置 Security Patch
-6) 写入 AOSP Keybox
-7) 导入本地 Keybox（DocumentsUI）
-8) 联网更新 Keybox
-9) 退出
+5) 写入 AOSP Keybox
+6) 导入本地 Keybox（DocumentsUI）
+7) 联网更新 Keybox
+8) 退出
 MENU
       printf "请选择操作: "
       read -r choice

@@ -37,10 +37,10 @@ Configure Tricky Store target.txt directly with `action.sh` (no WebUI required).
 
 ## Action Script Menu
 `module/action.sh` now provides a terminal menu for the core operations previously handled in WebUI:
-- Generate `target.txt` from installed apps (with exclusion patterns)
+- Generate `target.txt` from installed apps (reads exclusion patterns in `ExcludeList.txt`)
 - Merge Magisk DenyList to `target.txt`
 - Set verified boot hash from `VerifiedBootHash.txt` template
-- Auto/manual security patch configuration
+- Auto security patch configuration
 - Set default AOSP keybox or import local keybox via DocumentsUI
 - Online update keybox from multiple sources (Yurikey / TA-UTL / IntegrityBox)
 - Hardware key navigation in action menu (Vol- next with loop, Vol+ confirm/continue; fallback to text input if unavailable)
